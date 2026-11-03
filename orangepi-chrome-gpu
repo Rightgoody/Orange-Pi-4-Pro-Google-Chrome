@@ -1,0 +1,24 @@
+#!/bin/bash
+# Reapply the Orange Pi 4 Pro Chrome Vulkan flags.
+# The image build writes these into /opt/google/chrome/google-chrome
+# (sun60iw2.conf). Google's package replaces that file on upgrade.
+wrapper=/opt/google/chrome/google-chrome
+old='exec -a "$0" "$HERE/chrome" "$@"'
+new='exec -a "$0" "$HERE/chrome" --use-gl=angle --use-angle=vulkan --enable-features=Vulkan,VulkanFromANGLE --ignore-gpu-blocklist "$@"'
+
+if [[ ! -f "$wrapper" ]]; then
+	exit 0
+fi
+if grep -q -- '--use-angle=vulkan' "$wrapper"; then
+	exit 0
+fi
+if ! grep -qxF "$old" "$wrapper"; then
+	echo "orangepi-chrome-gpu: Chrome launcher line changed; Vulkan flags were not reapplied" >&2
+	exit 0
+fi
+python3 - "$wrapper" "$old" "$new" <<'PY'
+import pathlib, sys
+path, old, new = sys.argv[1:]
+file = pathlib.Path(path)
+file.write_text(file.read_text().replace(old, new, 1))
+PY

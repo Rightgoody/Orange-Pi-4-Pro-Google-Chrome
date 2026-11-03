@@ -1,0 +1,2 @@
+// Put the Orange Pi 4 Pro Vulkan flags back after Chrome package upgrades.
+DPkg::Post-Invoke { "/usr/local/sbin/orangepi-chrome-gpu || true"; };
