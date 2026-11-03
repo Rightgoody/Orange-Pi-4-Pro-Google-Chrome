@@ -70,25 +70,54 @@ After this launch, WebGL performance matched the GPU again. `--use-angle=vulkan`
 
 ## How that was made the default
 
-The image only patches the launcher while the image is being built. It does not survive the next `apt upgrade`. Two pieces were installed so normal launches and future Chrome upgrades keep the flags.
+The image only patches the launcher while the image is being built. A Chrome package upgrade replaces `/opt/google/chrome/google-chrome` and wipes the patch. `/usr/bin/google-chrome` and `/usr/bin/google-chrome-stable` both point at that file, so the menu and a terminal use whatever the last line says.
 
-1. `/opt/google/chrome/google-chrome` was edited so its last line is again:
+The current last line keeps the image’s Vulkan flags and adds limits that cut Chrome’s own background CPU use:
 
 ```
-exec -a "$0" "$HERE/chrome" --use-gl=angle --use-angle=vulkan --enable-features=Vulkan,VulkanFromANGLE --ignore-gpu-blocklist "$@"
+exec -a "$0" "$HERE/chrome" --use-gl=angle --use-angle=vulkan --enable-features=Vulkan,VulkanFromANGLE --ignore-gpu-blocklist --disable-features=HistoryEmbeddings,OptimizationGuide,Translate,Prerender,BackgroundFetch,MediaRouter --renderer-process-limit=2 --num-raster-threads=2 "$@"
 ```
 
-`/usr/bin/google-chrome` and `/usr/bin/google-chrome-stable` both point at this file, so the menu and a terminal get the same flags.
+`/usr/local/sbin/orangepi-chrome-gpu` writes that line back if an upgrade restores Google’s stock launcher, or if an older patch had only the Vulkan flags. `/etc/apt/apt.conf.d/99-orangepi-chrome-gpu` runs the script after apt finishes. The script edits the launcher file. It does not start Chrome. Copies of both files are in this folder.
 
-2. `/usr/local/sbin/orangepi-chrome-gpu` reapplies that line if an upgrade puts Google’s stock launcher back. `/etc/apt/apt.conf.d/99-orangepi-chrome-gpu` runs that script after apt package operations. Copies of both files are in this folder.
+A temporary menu launcher at `~/.local/share/applications/google-chrome.desktop` was created while the system file could not be edited, then removed after the real launcher was patched, so the flags are not passed twice.
 
-A temporary menu launcher in `~/.local/share/applications/google-chrome.desktop` was created while the system file could not be edited, then removed after the real launcher was patched, so the flags are not passed twice.
+Profile settings that also lower resource use, and that survive a Chrome package upgrade on their own:
+
+- Memory Saver on (`performance_tuning.high_efficiency_mode.state` = 1)
+- No page preloading (`net.network_prediction_options` = 2)
+- Do not keep Chrome running after it closes (`background_mode.enabled` = false)
+- Graphics acceleration left on
+
+## Chrome 156 is a bit slower than the image’s Chrome 151
+
+With the Vulkan flags restored, the GPU process loads `/usr/lib/libVK_IMG.so.24.2.6603887` and has no `llvmpipe` threads. WebGL is on the PowerVR chip again. It is still a bit slower than the original image.
+
+The build repo has no second Chrome or WebGL setting to copy. `sun60iw2.conf` only installs whatever `google-chrome-stable_current_arm64.deb` existed on image-build day and adds the four Vulkan flags. There is no `/etc/opt/chrome` policy. `/etc/default/google-chrome` only controls Google’s apt repo. `/etc/environment` contains `GSK_RENDERER=cairo`, which the image sets for GTK, not for WebGL. `/usr/share/vulkan/icd.d/img_icd.json` still points at `/lib/libVK_IMG.so`.
+
+The image’s browser was Chrome 151.0.7922.71, installed 31 July 2026. This system is Chrome 156.0.8078.47. Same flags, same Imagination driver. Chrome 156’s GPU process still spends a large share of a core in its main thread and the compositor thread. That is the remaining gap. No launcher flag replays Chrome 151’s code. Chrome 151 was not installed. Its package is still published by Google for anyone who chooses to downgrade and `apt-mark hold` it. That also drops the security fixes from 152 through 156.
+
+## Resource limits added on top of the image flags
+
+These do not replace the Vulkan flags. They turn off Chrome work that was showing up on the CPU: a TensorFlow Lite / passage-embeddings helper, prerender, translate, Cast, and extra renderer and raster threads.
+
+```
+--disable-features=HistoryEmbeddings,OptimizationGuide,Translate,Prerender,BackgroundFetch,MediaRouter
+--renderer-process-limit=2
+--num-raster-threads=2
+```
+
+## What was added, then removed
+
+- GitHub CLI was downloaded into `~/.local/bin` during an unused login attempt, then deleted. The repo itself is pushed over the existing SSH key.
+- The first apt hook only restored the four Vulkan flags. It was removed after a board crash. The crash lined up with downloading the Chrome 151 package, not with the hook. The hook now in place restores the full current launcher line.
+- Chrome 151 was downloaded and then deleted. It was never installed.
 
 ## How to confirm after a restart
 
 Quit Chrome completely, open it from the menu, and open `chrome://gpu`.
 
-- **Command Line** includes `--use-angle=vulkan`.
+- **Command Line** includes `--use-angle=vulkan` and `--renderer-process-limit=2`.
 - **Vulkan** is enabled.
 - **GL_RENDERER** names the PowerVR GPU, not `llvmpipe`.
 

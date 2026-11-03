@@ -1,24 +1,20 @@
 #!/bin/bash
-# Reapply the Orange Pi 4 Pro Chrome Vulkan flags.
-# The image build writes these into /opt/google/chrome/google-chrome
-# (sun60iw2.conf). Google's package replaces that file on upgrade.
 wrapper=/opt/google/chrome/google-chrome
-old='exec -a "$0" "$HERE/chrome" "$@"'
-new='exec -a "$0" "$HERE/chrome" --use-gl=angle --use-angle=vulkan --enable-features=Vulkan,VulkanFromANGLE --ignore-gpu-blocklist "$@"'
-
-if [[ ! -f "$wrapper" ]]; then
-	exit 0
-fi
-if grep -q -- '--use-angle=vulkan' "$wrapper"; then
-	exit 0
-fi
-if ! grep -qxF "$old" "$wrapper"; then
-	echo "orangepi-chrome-gpu: Chrome launcher line changed; Vulkan flags were not reapplied" >&2
-	exit 0
-fi
-python3 - "$wrapper" "$old" "$new" <<'PY'
+[ -f "$wrapper" ] || exit 0
+python3 - "$wrapper" <<'PY'
 import pathlib, sys
-path, old, new = sys.argv[1:]
-file = pathlib.Path(path)
-file.write_text(file.read_text().replace(old, new, 1))
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+full = 'exec -a "$0" "$HERE/chrome" --use-gl=angle --use-angle=vulkan --enable-features=Vulkan,VulkanFromANGLE --ignore-gpu-blocklist --disable-features=HistoryEmbeddings,OptimizationGuide,Translate,Prerender,BackgroundFetch,MediaRouter --renderer-process-limit=2 --num-raster-threads=2 "$@"'
+candidates = [
+    'exec -a "$0" "$HERE/chrome" "$@"',
+    'exec -a "$0" "$HERE/chrome" --use-gl=angle --use-angle=vulkan --enable-features=Vulkan,VulkanFromANGLE --ignore-gpu-blocklist "$@"',
+]
+if full in text:
+    raise SystemExit(0)
+for old in candidates:
+    if old in text:
+        path.write_text(text.replace(old, full, 1))
+        raise SystemExit(0)
+print("orangepi-chrome-gpu: Chrome launcher line changed; flags were not reapplied", file=sys.stderr)
 PY
