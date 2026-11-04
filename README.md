@@ -113,6 +113,36 @@ These do not replace the Vulkan flags. They turn off Chrome work that was showin
 - The first apt hook only restored the four Vulkan flags. It was removed after a board crash. The crash lined up with downloading the Chrome 151 package, not with the hook. The hook now in place restores the full current launcher line.
 - Chrome 151 was downloaded and then deleted. It was never installed.
 
+## Profile data is not removed by a Chrome upgrade
+
+Date: 4 November 2026
+
+A Chrome package upgrade replaces `/opt/google/chrome`. It does not delete bookmarks, history, or extensions. Those live in `~/.config/google-chrome`.
+
+On this board that path was not the real profile. Profile-sync-daemon (`psd`) keeps the Chrome profile in memory, under `$XDG_RUNTIME_DIR/psd`, and copies it back to disk only when the session ends cleanly. While it is running, `~/.config/google-chrome` is a symlink to that memory copy. The on-disk copy is `~/.config/google-chrome-backup`.
+
+After a crash or a power loss, the next login makes `psd` throw away the memory copy and rebuild Chrome from the older disk copy. Bookmarks, history, and extensions that existed only in memory are gone. That is what happened on 2–3 November 2026. Chrome was still 156.0.8078.47. The profile was not signed in, and sync was off, so there was no Google account copy to bring the data back.
+
+`psd` also saves crash snapshots as `~/.config/google-chrome-backup-crashrecovery-<date>`. The 2 November snapshot still had the installed extensions and the saved bookmarks. The profile Chrome was using still had a mostly different set of history. Those were combined back into one profile on disk: the extension files and their preference entries, the bookmarks file, and the history rows that were not already there.
+
+## Keep the Chrome profile on disk
+
+`psd` is masked for this user so it cannot start and move the profile back into memory:
+
+```bash
+systemctl --user mask psd.service psd-resync.service
+```
+
+Disabling the user unit is not enough on its own. Both units are also enabled for every user from `/etc/systemd/user/default.target.wants/`.
+
+`~/.config/psd/psd.conf` now contains `BROWSERS=(firefox)`. An empty `BROWSERS` list means every browser, including Chrome. Firefox is named because this account has no Firefox profile, which keeps the list from being empty. Chrome is not in the list, so a later start of `psd` will not take the Chrome profile.
+
+`~/.config/google-chrome` is a normal directory again, not a symlink. Check with:
+
+```bash
+ls -ld ~/.config/google-chrome
+```
+
 ## How to confirm after a restart
 
 Quit Chrome completely, open it from the menu, and open `chrome://gpu`.
